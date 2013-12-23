@@ -4,9 +4,9 @@
 # Imagine 2 peers each with operations that the other peer is missing.
 # Operations are arranged in a DAG.
 #
-# Each peer has a *frontier*, which is the set of operations which have no
+# Each peer has a *frontier*, which is the set of operations which have no known
 # dependants. This is the set of operations which any locally created operation
-# will depend on.
+# will depend on. The frontier is a set, but its usually just one node in size.
 #
 # When a client connects to another client, it can perform one of 3 actions:
 #
@@ -14,10 +14,11 @@
 # - PUSH
 # - SYNC
 #
-# PULL fetches all remote operations which are missing locally. PUSH sends all
-# local operations which are missing remotely. It is equivalent to the remote
-# peer doing a PULL. SYNC brings both peers in sync with one another. It is the
-# equivalent of both peers doing a PULL.
+# These are modelled after git and do what you'd expect. PULL fetches all
+# remote operations which are missing locally. PUSH sends all local operations
+# which are missing remotely. It is equivalent to the remote peer doing a PULL.
+# SYNC brings both peers in sync with one another. It is the equivalent of both
+# peers pulling from one another.
 #
 # When doing a PULL:
 #
@@ -52,7 +53,7 @@
 #
 #   - Create two fronteirs (a and b). To start, a=A and b=B-A.
 #   - While b not empty, scan through all operations in reverse order (requires
-#     a chronilogical ordering which maintains partial order that if y is a child
+#     a chronological ordering which maintains partial order that if y is a child
 #     of x, y is after x in sorted set).
 #   - For each operation:
 #     - If the operation is in a, remove it from b (if its there) and replace it in a with the operation's parents.
@@ -105,7 +106,8 @@
 #   - If A's frontier contains ops that B doesn't know about, continue:
 # B: NEED_BLOOM_FILTER, my frontier is [...]
 # (A)
-#   - IF B's frontier is contained within A's database, send missing ops using scanning algorithm and say DONE. Do not send bloom filter.
+#   - IF B's frontier is contained within A's database, send missing ops using
+#     scanning algorithm and say DONE. Do not send bloom filter.
 #   - Else, .....
 
 
@@ -121,6 +123,11 @@ clone = (obj) ->
   #console.log obj
   JSON.parse JSON.stringify obj
 
+empty = (map) ->
+  for k of map
+    return no
+  return yes
+
 module.exports = node = (name) ->
   #doc: type.create initial
 
@@ -133,12 +140,77 @@ module.exports = node = (name) ->
   # Network messages. These methods should be exposed over an RPC stream.
   
   # Pull from this node. We need to send all operations that remote_frontier is missing to remote.
-  n_pull: (remote, remote_frontier) ->
-    if remote_fronteir.length is 0
+# A: PULL. My frontier is [x,y,z]
+  rpc_pull: (remote, remote_frontier, callback) ->
+#   - If A's frontier is empty, send our entire database.
+    if remote_frontier.length is 0
       # Just reply with our entire history.
-      remote.n_consume_ops @history
+      #remote.n_consume_ops @history
+      callback null, @history
     else
-      # If our frontier is a subset of remote's, we don't have to do anything. But 
+# (B) Find all ops that B has that A does not have. Strategies:
+#   - If B's frontier is a subset of A's frontier, do nothing. A has all our ops.
+#   - For each hash in A's frontier, if hash not in B's database, switch to bloom filter algorithm.
+#   - Otherwise use scanning algorithm.
+
+      # If our frontier is a subset of remote's, we don't have to do anything.
+      # But we'll figure that out in short order anyway.
+      #
+      # If remote_frontier is entirely included in our database, we have a
+      # superset of the remote's ops and can use the scanning algorithm.
+      # Otherwise we need to switch to the bloom filter algorithm.
+
+      algorithm = 'scan'
+
+      for id in remote_frontier
+        if id not in @hPositions
+          algorithm = 'bloom'
+          break
+
+      if algorithm is 'scan'
+
+# Scanning algorithm ===
+#   - Create two fronteirs (a and b). To start, a=A and b=B-A.
+#   - While b not empty, scan through all operations in reverse order (requires
+#     a chronological ordering which maintains partial order that if y is a child
+#     of x, y is after x in sorted set).
+#   - For each operation:
+#     - If the operation is in a, remove it from b (if its there) and replace it in a with the operation's parents.
+#     - Else if the operation is not in b, skip it
+#     - Else add it to the list of ops to send to A and replace it in b with the operation's parents.
+
+        known = {} # known = remote_frontier
+        known[id] = true for id in remote_frontier
+
+        unknown = {} # unknown = @frontier - remote_frontier
+        unknown[id] = true for id in @frontier when !known[id]
+
+        opsToSend = []
+        pos = @history.length
+
+        while !empty unknown
+          if pos =< 0
+            throw Error 'Internal consistency error finding missing ops'
+
+          op = @history[--pos]
+          id = op.id
+          
+          if known[id]
+            delete known[id]
+            known[_id] = true for _id in op.parents
+
+            delete unknown[id]
+          else if unknown[id]
+            opsToSend.unshift op
+
+            delete unknown[id]
+            unknown[_id] = true for _id in op.parents when !known[_id]
+
+        callback null, opsToSend
+
+      else # Bloom algorithm
+        throw Error 'Bloom algorithm not implemented'
+
 
 
   n_consume_ops: (remote, ops) ->
@@ -195,6 +267,8 @@ module.exports = node = (name) ->
     assert.equal Object.keys(@hPositions).length, @history.length
     for h, i in @history
       assert.equal @hPositions[h.id], i
+
+    # Should also check that the fronteir transitively contains all operations.
 
 
 nodes = (node "node #{i}" for i in [1..5])
