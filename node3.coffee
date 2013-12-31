@@ -131,7 +131,7 @@ Bubble = ->
     otherOp
 
   prune: (otherOp, site) ->
-    stats.prune += @ops.length
+    stats.transform += @ops.length
     for d in @ops
       assert d.site != site
       otherOp = type.prune otherOp, d.op
@@ -305,7 +305,6 @@ module.exports = node = (initial) ->
     console.log 'pulling'.yellow, (o.id for o in newOps)
     cmp = (a, b) => @cmp a, b
     newOps.sort cmp
-    console.log 'sorted '.yellow, (o.id for o in newOps)
 
     console.log 'new ops'.grey, newOps.length if newOps.length
 
@@ -360,8 +359,8 @@ module.exports = node = (initial) ->
 #        assert bubble.pos < srcPos
 
         while bubble.pos < destPos
-          bubble.pos++
-          data = @history[bubble.pos]
+          data = @history[bubble.pos++]
+          #console.log bubble, data
           if isLocal[data.id]
             # The op is local only. Add it to the bubble.
             bubble.add data
@@ -383,12 +382,16 @@ module.exports = node = (initial) ->
       applied = {site:newOp.site, op:newOp.op}
       for data, i in @history[destPos...@history.length]
         @hPositions[data.id]++
+        data.pos++
         transformX applied, data
 
+      newOp.pos = destPos
       @history.splice destPos, 0, newOp
       @hPositions[newOp.id] = destPos
-      @doc = type.apply @doc, applied.op
 
+      @doc = type.apply @doc, applied.op
+      @frontier = (id for id in @frontier when id not in newOp.parents)
+      @frontier.push newOp.id
 
   check: ->
     assert.equal Object.keys(@hPositions).length, @history.length
@@ -403,7 +406,14 @@ module.exports = node = (initial) ->
     #console.log (op.id for op in @history)
 
     @pull other
-    #other.pull @
+    console.log 'v-------------------------v'.blue
+    console.log 'me   '.green, (o.id for o in @history), 'f', @frontier
+    console.log 'other'.red, (o.id for o in other.history), 'f', other.frontier
+    other.pull @
+    console.log 'me   '.green, (o.id for o in @history), 'f', @frontier
+    console.log 'other'.red, (o.id for o in other.history), 'f', other.frontier
+    console.log '^-------------------------^'.blue
+
     @check()
     other.check()
 
