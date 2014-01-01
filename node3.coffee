@@ -5,11 +5,11 @@ type = require('ottypes')['text-tp2']
 {randomInt} = require 'ottypes/randomizer'
 bSearch = require 'binary-search'
 
-hat = require 'hat'
+#hat = require 'hat'
 
 #letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-#letters = 'abcdef0123456789'
-#hat = (n) -> (letters[(Math.random() * letters.length) | 0] for [0...n]).join ''
+letters = 'abcdef0123456789'
+hat = (n) -> (letters[randomInt letters.length] for [0...n/4]).join ''
 
 assert = require 'assert'
 #assert = (v) -> throw Error 'Assertion error' unless v
@@ -23,7 +23,6 @@ stats =
   clone:0
   compose:0
   transform:0
-  swap:0
 
 xorHash = (a, b) ->
   assert a.length is b.length
@@ -35,27 +34,6 @@ isEmpty = (obj) ->
   for k of obj
     return false
   return true
-
-prune = (data, other) ->
-  stats.transform++
-  assert data.site != other.site
-  #console.log 'prune', data.id, other.id
-  data.op = type.prune data.op, other.op
-  data.xfHash[i] ^= x for x, i of other.idBuf
-  return
-
-swap = (a, b) ->
-  stats.swap++
-
-  assert a.id not in b.parents
-
-  #console.log b, a
-  prune b, a
-  #console.log b, a
-  transform a, b
-
-  a.pos++
-  b.pos--
 
 bufferEq = (a, b) -> a <= b && a >= b
 
@@ -106,7 +84,7 @@ Bubble = ->
     else
       @idBuf = Buffer data.idBuf
 
-    if @ops.length > 0 and (last = @ops[ops.length - 1]).site == data.site
+    if @ops.length > 0 and (last = @ops[@ops.length - 1]).site == data.site
       last.op = type.compose last.op, data.op
       stats.compose++
     else
@@ -116,23 +94,32 @@ Bubble = ->
 
 
   transformBy: (otherOp, site) -> # Transform the bubble by op data
-    stats.transform += @ops.length
-    for d in @ops
+    stats.transform += @ops.length * 2
+    #console.log 'transformBy'.grey, @ops.length
+    for d, i in @ops
       assert d.site != site
+      #console.log 'transformBy'.grey, otherOp, d.op
+      if i isnt @ops.length - 1
+        next = type.transform otherOp, d.op, if d.site > site then 'left' else 'right'
       d.op = type.transform d.op, otherOp, if d.site < site then 'left' else 'right'
+      otherOp = next
 
     return
 
   transform: (otherOp, site) ->
     stats.transform += @ops.length
+    #console.log 'transform'.grey, @ops.length
     for d in @ops
       assert d.site != site
+      #console.log 'transform'.grey, otherOp, d.op
       otherOp = type.transform otherOp, d.op, if site < d.site then 'left' else 'right'
     otherOp
 
   prune: (otherOp, site) ->
     stats.transform += @ops.length
-    for d in @ops
+    #console.log 'prune'.grey, @ops.length
+    for d in @ops by -1
+      #console.log 'prune'.grey, d.site, site, otherOp, d.op
       assert d.site != site
       otherOp = type.prune otherOp, d.op
     otherOp
@@ -185,29 +172,17 @@ module.exports = node = (initial) ->
     @hPositions[b.id] = idx
     @hPositions[a.id] = idx + 1
 
-  composeRange: (start, end) ->
-    assert start <= end
-
-    if start is end
-      return clone @history[start]
-    else
-      r = @history[start]
-      # This could be made more efficient using the Alex Mah method from Wave.
-      for i in [start+1..end]
-        r = type.compose r, @history[i]
-        stats.compose++
-      r
-
   maxParentPos: (op) ->
-    max = 0
+    max = -1
     for id in op.parents
       assert id of @hPositions
       pos = @hPositions[id]
       max = pos if pos > max
     max
 
-  # Compare two operations. Returns negative if a<b, positive if a>b. The node
-  # must contain all parents of both compared operations.
+  # Compare two operations. Returns negative if a<b, positive if a>b.
+  #
+  # The node must contain all parents of both compared operations.
   cmp: (a, b) ->
     assert a.id != b.id
     maxA = @maxParentPos a
@@ -227,7 +202,7 @@ module.exports = node = (initial) ->
       op: op # Transformed version of this op. Mutable.
       pos: @history.length # position of this op in history
       site: @siteId
-      ts: Date.now() + @clockSkew
+      ts: @clockSkew + Date.now()
       parents: @frontier.sort()
       _original: JSON.stringify op # Untransformed bytes for testing
 
@@ -258,6 +233,9 @@ module.exports = node = (initial) ->
     f = frontier.slice()
     visited = {}
 
+    cmp = (a, b) => @hPositions[a] - @hPositions[b]
+    f.sort cmp
+
     while f.length
       id = f.pop()
       continue if visited[id]
@@ -267,6 +245,7 @@ module.exports = node = (initial) ->
 
       if visit id, op
         f.push i for i in op.parents
+      f.sort cmp
 
   # Git style pull
   pull: (other) ->
@@ -293,7 +272,7 @@ module.exports = node = (initial) ->
       otherOp = other.history[other.hPositions[id]]
       newOp = {}
       newOp[k] = v for k, v of otherOp # Shallow clone
-      newOp.op = clone newOp.op
+      #newOp.op = clone newOp.op
       newOps.push newOp
 
       newIds[id] = true
@@ -302,15 +281,12 @@ module.exports = node = (initial) ->
 
     # The new ops aren't necessarily in order now. We want to process them in a
     # partial order.
-    console.log 'pulling'.yellow, (o.id for o in newOps)
-    cmp = (a, b) => @cmp a, b
+    cmp = (a, b) -> a.pos - b.pos
     newOps.sort cmp
+    #console.log 'pulling'.yellow, (o.id for o in newOps)
 
-    console.log 'new ops'.grey, newOps.length if newOps.length
+    #console.log 'new ops'.grey, newOps.length if newOps.length
 
-    #console.log 'my originals', Object.keys @hPositions
-    #console.log 'newops', newOps
-    #console.log 'history'.cyan, (h.id for h in @history)
     # Ok, we have our list of ops to pull.
 
     # We only need to calculate this if we have ops earlier than the earliest
@@ -322,22 +298,46 @@ module.exports = node = (initial) ->
     # Position of first local operation
     firstLocal = Infinity
     
-    @traverse @frontier, (id, op) =>
-      if id not in commonFrontier
-        isLocal[id] = true
-        firstLocal = @hPositions[id] if @hPositions[id] < firstLocal
-        yes
-      else
-        no
+    #console.log 'common frontier'.grey, commonFrontier
+
+    knownCommon = {}
+    knownCommon[id] = true for id in commonFrontier
+
+    # Find all the local ops.
+    do =>
+      f = {}
+      f[id] = true for id in @frontier
+
+      iter = 0
+      for op in @history by -1
+        break if isEmpty f
+
+        iter++
+
+        id = op.id
+        delete f[id]
+
+        if id of knownCommon
+          #console.log 'traverse'.red, id
+          knownCommon[i] = true for i in op.parents
+        else
+          #console.log 'traverse'.green, id
+          isLocal[id] = true
+          f[_id] = true for _id in op.parents
+          firstLocal = @hPositions[id]# if @hPositions[id] < firstLocal
+      #console.log 'traverse'.grey, 'iter', iter, '/', @history.length
+
+    #console.log 'local ops'.green, Object.keys isLocal
 
     bubble = Bubble()
     bubble.pos = firstLocal
 
-    console.log 'Local ops'.green, isLocal
-
+    bsCmp = (a, b) => @cmp a, b
     for newOp in newOps
+      #assert _id of @hPositions for _id in newOp.parents
+
       # Find where it needs to go in our op list.
-      destPos = bSearch @history, newOp, cmp
+      destPos = bSearch @history, newOp, bsCmp
       assert destPos < 0
       destPos = ~destPos
 
@@ -345,9 +345,9 @@ module.exports = node = (initial) ->
 
       srcPos = newOp.pos
 
-      assert destPos >= srcPos
+      #console.log 'destPos', destPos, 'srcPos', srcPos
 
-      console.log 'destPos', destPos, 'srcPos', srcPos
+      assert destPos >= srcPos
 
       # First we need to transform out anything thats not in the op's history
       #if !bufferEq newOp.xfHash, @history[srcPos].xfHash
@@ -360,19 +360,23 @@ module.exports = node = (initial) ->
 
         while bubble.pos < destPos
           data = @history[bubble.pos++]
-          #console.log bubble, data
           if isLocal[data.id]
             # The op is local only. Add it to the bubble.
+            #console.log 'bubble.add'.cyan, data.id
             bubble.add data
           else
             # The op is included in the the remote, and the op we've been given
             # has been transformed.
 
+            #console.log 'bubble prune swap'.cyan, data.id
             op_ = bubble.prune data.op, data.site
             bubble.transformBy op_, data.site
         
+      #console.log 'destPos', destPos, 'srcPos', srcPos
+      #console.log 'bubble.size', bubble.size
       assert srcPos + bubble.size is destPos
       newOp.op = bubble.xf newOp.op, newOp.site
+      bubble.pos++
 
       # Splice in newOp to history and update everything.
       #
@@ -388,6 +392,7 @@ module.exports = node = (initial) ->
       newOp.pos = destPos
       @history.splice destPos, 0, newOp
       @hPositions[newOp.id] = destPos
+      #assert.equal Object.keys(@hPositions).length, @history.length
 
       @doc = type.apply @doc, applied.op
       @frontier = (id for id in @frontier when id not in newOp.parents)
@@ -395,9 +400,17 @@ module.exports = node = (initial) ->
 
   check: ->
     assert.equal Object.keys(@hPositions).length, @history.length
+
+    checkDoc = type.create 'hi there'
     for h, i in @history
       assert.equal @hPositions[h.id], i
+ 
+      if i >= 1
+        assert @cmp(@history[i-1], @history[i]) < 0
 
+      checkDoc = type.apply checkDoc, h.op
+
+    assert.deepEqual @doc, checkDoc
 
 
   sync: (other) ->
@@ -405,17 +418,23 @@ module.exports = node = (initial) ->
     #console.log (op.id for op in other.history)
     #console.log (op.id for op in @history)
 
-    @pull other
+    ###
     console.log 'v-------------------------v'.blue
     console.log 'me   '.green, (o.id for o in @history), 'f', @frontier
+    console.log "  #{o.site} #{o.id}: ".green, o.parents, o.op for o in @history
     console.log 'other'.red, (o.id for o in other.history), 'f', other.frontier
-    other.pull @
+    console.log "  #{o.site} #{o.id}: ".red, o.parents, o.op for o in other.history
+    ###
+    @pull other
+    #other.pull @
+    ###
     console.log 'me   '.green, (o.id for o in @history), 'f', @frontier
     console.log 'other'.red, (o.id for o in other.history), 'f', other.frontier
     console.log '^-------------------------^'.blue
+    ###
 
-    @check()
-    other.check()
+    #@check()
+    #other.check()
 
     #if s
     #  console.log 'swaps:', s
@@ -437,10 +456,10 @@ module.exports = node = (initial) ->
     @frontier = Object.keys f
     ###
 
-
 nodes = (node 'hi there' for [1..3])
 [a, b, c] = nodes
 a.siteId = 'a'; b.siteId = 'b'; c.siteId = 'c'
+
 
 ###
 a.genOp() # a
@@ -457,7 +476,6 @@ console.log 'a contains ab', (o.id for o in a.history)
 b.sync a # abxy
 console.log 'b contains abxy', (o.id for o in b.history)
 a.genOp()
-###
 
 
 # This group generates a swap.
@@ -470,13 +488,12 @@ a.genOp()
 console.log 'a contains bc', (o.id for o in a.history)
 console.log 'b contains xb', (o.id for o in b.history)
 b.sync a
-
-
 ###
+
 
 start = process.hrtime()
 
-for i in [1..1000]
+for i in [1..500]
   #console.log i
   for [1..2]
     n1 = nodes[randomInt nodes.length]
@@ -500,7 +517,6 @@ b.sync a
 assert.deepEqual a.doc.data, b.doc.data
 assert.deepEqual b.doc.data, c.doc.data
 console.log a.doc.data
-###
 
 console.log stats
 
