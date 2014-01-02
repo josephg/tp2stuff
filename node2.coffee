@@ -325,34 +325,41 @@ b.sync a
 
 
 
-start = process.hrtime()
+randTest = ->
+  stats[k] = 0 for k of stats
+  start = setStart = Date.now()#process.hrtime()
 
-for i in [1..500]
-  #console.log i
-  for [1..2]
-    n1 = nodes[randomInt nodes.length]
-    n2 = nodes[randomInt nodes.length]
-    n1.sync n2
-  #sync (randomInt 3), (randomInt 3)
-  nodes[randomInt nodes.length].genOp() for [1..10]
-  #makeNode() for [1..3]
+  for i in [1..2000]
+    #console.log i
+    for [1..2]
+      n1 = nodes[randomInt nodes.length]
+      n2 = nodes[randomInt nodes.length]
+      n1.sync n2
+    #sync (randomInt 3), (randomInt 3)
+    nodes[randomInt nodes.length].genOp() for [1..10]
+    #makeNode() for [1..3]
 
-  if i % 100 is 0
-    now = process.hrtime()
-    diff = (now[0] - start[0]) + (now[1] - start[1]) / 1e9
-    console.log diff
-    start = now
+    if i % 100 is 0
+      now = Date.now()#process.hrtime()
+      #diff = (now[0] - start[0]) + (now[1] - start[1]) / 1e9
+      diff = now - setStart
+      console.log diff
+      setStart = now
 
-b.sync a
-c.sync b
-a.sync c
-b.sync a
+  console.log 'total', Date.now() - start
 
-assert.deepEqual a.doc.data, b.doc.data
-assert.deepEqual b.doc.data, c.doc.data
-console.log a.doc.data
+  b.sync a
+  c.sync b
+  a.sync c
+  b.sync a
 
-console.log stats
+  assert.deepEqual a.doc.data, b.doc.data
+  assert.deepEqual b.doc.data, c.doc.data
+  console.log a.doc.data
+
+  console.log stats
+
+randTest()
 
 #a.sync b
 #b.sync a
