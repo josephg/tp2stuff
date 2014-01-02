@@ -30,12 +30,13 @@ transformX = (a, b) ->
   else
     aop = type.transform(a.op, b.op, 'right')
     bop = type.transform(b.op, a.op, 'left')
-  a = clone a
-  b = clone b
+  #a = clone a
+  #b = clone b
   a.op = aop
   b.op = bop
   #console.log '        ->', a.op, b.op
-  [a, b]
+
+s = 0
 
 module.exports = node = (initial) ->
 
@@ -45,6 +46,7 @@ module.exports = node = (initial) ->
 
   # Swap ops at idx and idx+1
   swap: (idx) ->
+    s++
     #console.log 'swap', idx #, @history
     assert 0 <= idx < @history.length - 1
 
@@ -68,6 +70,7 @@ module.exports = node = (initial) ->
   siteId: hat(64)
 
   submit: (op) ->
+    #console.log 'submit', @siteId, @doc.data, op
     @doc = type.apply @doc, op
     opData = {op, id:hat(32), site:@siteId, parents:@frontier}
 
@@ -85,7 +88,7 @@ module.exports = node = (initial) ->
 
   # Op must be at the latest local version.
   injestOp: (opData) ->
-    #console.log 'apply', @doc.data, opData.op
+    #console.log 'apply to ', @siteId, @doc.data, opData.id, opData.op
     @doc = type.apply @doc, opData.op
     #console.log '   ->', @doc.data
     #assert.deepEqual @doc, opData.doc
@@ -142,15 +145,19 @@ module.exports = node = (initial) ->
         # Strategy 2:
         otherOp = clone otherOp
         
+        #console.log 'splicing', otherOp.id, 'at', i
         @history.splice i, 0, otherOp
+        splicedOp = otherOp.op
+
         for k in [i+1...@history.length]
           #console.log 'other', otherOp
-          [otherOp, @history[k]] = transformX otherOp, @history[k]
+          transformX otherOp, @history[k]
           #console.log 'oth->', otherOp
 
         # end
 
         @injestOp otherOp
+        otherOp.op = splicedOp
 
 
       otherSet[otherOp.id] = true
@@ -158,7 +165,19 @@ module.exports = node = (initial) ->
 
 
   sync: (other) ->
+    console.log 'sync', other.siteId, '->', @siteId
+    #console.log (op.id for op in other.history)
+    #console.log (op.id for op in @history)
+
     @pull other
+
+    if s
+      console.log 'swaps:', s
+      s = 0
+
+    #for a in @history
+    #  for b in other.history
+    #    throw new Error 'same item' if a is b
 
     # ... and fix the frontier.
     ###

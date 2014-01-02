@@ -29,11 +29,12 @@ exports.injest = (myOps, otherOps) ->
     #console.log myOps, otherOps
     if !mySet[otherOp]
       # At all times, all ops < base are in other.
-      base = nextViable = 0
+      base = nextViable = 0 # Should this be i?
 
       base++ while otherSet[myOps[base]]
       nextViable = base + 1
-      #console.log base, nextViable
+
+      console.log base, nextViable
 
       while base < i
         #console.log base, i, myOps
@@ -68,6 +69,8 @@ exports.injest = (myOps, otherOps) ->
     otherSet[otherOp] = true
 
 
+exports.injest h2, h1
+
 #injest h2, h1
 
-#console.log h1
+console.log h1

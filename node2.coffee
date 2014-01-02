@@ -1,17 +1,32 @@
 type = require('ottypes')['text-tp2']
 {randomInt} = require 'ottypes/randomizer'
+
 hat = require 'hat'
+
+#letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+#hat = (n) -> (letters[(Math.random() * letters.length) | 0] for [0...n]).join ''
+
 assert = require 'assert'
+#assert = (v) -> throw Error 'Assertion error' unless v
+#assert.equal = (x, y) -> assert x == y
+#assert.deepEqual = ->
+
 require 'colors'
-require 'coffee-script'
+#require 'coffee-script'
+
+stats =
+  c:0
+  t:0
+  s:0
 
 prune = (data, other) ->
+  stats.t++
   assert data.site != other.site
   #console.log 'prune', data.id, other.id
   data.op = type.prune data.op, other.op
 
 swap = (a, b) ->
-  s++
+  stats.s++
 
   assert a.id not in b.parents
 
@@ -22,10 +37,12 @@ swap = (a, b) ->
 
 
 clone = (obj) ->
+  stats.c++
   #console.log obj
   JSON.parse JSON.stringify obj
 
 transform = (data, other) ->
+  stats.t++
   assert data.site != other.site
   #console.log 'transform', data.id, other.id
   #console.log JSON.stringify data.op
@@ -34,6 +51,7 @@ transform = (data, other) ->
   data
 
 transformX = (a, b) ->
+  stats.t+=2
   #console.log 'transformX'.grey, a.id.magenta, 'by', b.id.magenta
   assert a.site != b.site
   #console.log 'transformX', a.id, b.id
@@ -49,7 +67,6 @@ transformX = (a, b) ->
   a.op = aop; b.op = bop
   #console.log '        ->', a.op, b.op
 
-s = 0
 
 module.exports = node = (initial) ->
 
@@ -248,6 +265,7 @@ module.exports = node = (initial) ->
     #console.log (op.id for op in @history)
 
     @pull other
+    #other.pull @
     #@check()
 
     #if s
@@ -271,7 +289,7 @@ module.exports = node = (initial) ->
     ###
 
 
-nodes = (node 'hi there' for [1..5])
+nodes = (node 'hi there' for [1..3])
 [a, b, c] = nodes
 a.siteId = 'a'; b.siteId = 'b'; c.siteId = 'c'
 
@@ -309,7 +327,8 @@ b.sync a
 
 start = process.hrtime()
 
-for i in [1..10000]
+for i in [1..500]
+  #console.log i
   for [1..2]
     n1 = nodes[randomInt nodes.length]
     n2 = nodes[randomInt nodes.length]
@@ -318,7 +337,7 @@ for i in [1..10000]
   nodes[randomInt nodes.length].genOp() for [1..10]
   #makeNode() for [1..3]
 
-  if i % 30 is 0
+  if i % 100 is 0
     now = process.hrtime()
     diff = (now[0] - start[0]) + (now[1] - start[1]) / 1e9
     console.log diff
@@ -332,6 +351,8 @@ b.sync a
 assert.deepEqual a.doc.data, b.doc.data
 assert.deepEqual b.doc.data, c.doc.data
 console.log a.doc.data
+
+console.log stats
 
 #a.sync b
 #b.sync a

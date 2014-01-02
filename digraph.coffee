@@ -54,6 +54,7 @@ drawGraph = (c) ->
     for p in n.parents
       g.addEdge p, id
 
+  ###
   client = clients[c]
   for n1, i in client.history[0...client.history.length - 1]
     n2 = client.history[i + 1]
@@ -61,6 +62,7 @@ drawGraph = (c) ->
     e = g.addEdge n1, n2
     e.set 'color', 'red'
 
+  ###
   g.output 'png', "ops#{c} #{gidx++}.png"
 
 for [1..10]
