@@ -187,6 +187,7 @@ module.exports = node = (initial) ->
     assert a.id != b.id
     maxA = @maxParentPos a
     maxB = @maxParentPos b
+    #console.log 'cmp'.red, a.id, a.parents, maxA, b.id, b.parents, maxB
     return maxA - maxB if maxA != maxB
     return a.ts - b.ts if a.ts != b.ts
     return (if a.site < b.site then -1 else 1)
@@ -202,7 +203,7 @@ module.exports = node = (initial) ->
       op: op # Transformed version of this op. Mutable.
       pos: @history.length # position of this op in history
       site: @siteId
-      ts: @clockSkew + Date.now()
+      ts: @clockSkew #+ Date.now()
       parents: @frontier.sort()
       _original: JSON.stringify op # Untransformed bytes for testing
 
@@ -326,6 +327,7 @@ module.exports = node = (initial) ->
           f[_id] = true for _id in op.parents
           firstLocal = @hPositions[id]# if @hPositions[id] < firstLocal
       #console.log 'traverse'.grey, 'iter', iter, '/', @history.length
+      return
 
     #console.log 'local ops'.green, Object.keys isLocal
 
@@ -333,7 +335,22 @@ module.exports = node = (initial) ->
     bubble.pos = firstLocal
 
     bsCmp = (a, b) => @cmp a, b
+
+    newOpChunk = Bubble()
+    chunkCatchup = (n) =>
+      #console.log 'chunkCatchup'.grey, newOpChunk.pos, n
+      return unless newOpChunk.size > 0
+      assert n >= newOpChunk.pos >= 0
+      for data in @history[newOpChunk.pos...n]
+        #console.log newOpChunk, data
+        data.op = newOpChunk.xf data.op, data.site
+        #@hPositions[data.id] += newOpChunk.size
+        #data.pos += newOpChunk.size
+      newOpChunk.pos = n
+
     for newOp in newOps
+      #console.log 'pulling'.yellow, newOp.site, newOp.id.green, newOp.parents
+
       #assert _id of @hPositions for _id in newOp.parents
 
       # Find where it needs to go in our op list.
@@ -345,9 +362,11 @@ module.exports = node = (initial) ->
 
       srcPos = newOp.pos
 
-      #console.log 'destPos', destPos, 'srcPos', srcPos
+      #console.log 'destPos'.grey, destPos, 'srcPos'.grey, srcPos
 
       assert destPos >= srcPos
+
+      chunkCatchup destPos
 
       # First we need to transform out anything thats not in the op's history
       #if !bufferEq newOp.xfHash, @history[srcPos].xfHash
@@ -383,27 +402,36 @@ module.exports = node = (initial) ->
       # I could do this in one pass instead of one pass per op by composing
       # together all the operations and doing this slide as we iterate, but
       # this should be ok for now.
-      applied = {site:newOp.site, op:newOp.op}
+      #applied = {site:newOp.site, op:newOp.op}
       for data, i in @history[destPos...@history.length]
         @hPositions[data.id]++
         data.pos++
-        transformX applied, data
+      #  transformX applied, data
 
       newOp.pos = destPos
       @history.splice destPos, 0, newOp
       @hPositions[newOp.id] = destPos
       #assert.equal Object.keys(@hPositions).length, @history.length
-
-      @doc = type.apply @doc, applied.op
       @frontier = (id for id in @frontier when id not in newOp.parents)
       @frontier.push newOp.id
+
+      if newOpChunk.size is 0
+        newOpChunk.pos = destPos
+      newOpChunk.add newOp
+      newOpChunk.pos++
+
+    if newOpChunk.size
+      chunkCatchup @history.length
+      @doc = type.apply @doc, op.op for op in newOpChunk.ops
 
   check: ->
     assert.equal Object.keys(@hPositions).length, @history.length
 
     checkDoc = type.create 'hi there'
+    #console.log @hPositions, @history
     for h, i in @history
       assert.equal @hPositions[h.id], i
+      assert.equal i, h.pos
  
       if i >= 1
         assert @cmp(@history[i-1], @history[i]) < 0
@@ -460,63 +488,63 @@ nodes = (node 'hi there' for [1..3])
 [a, b, c] = nodes
 a.siteId = 'a'; b.siteId = 'b'; c.siteId = 'c'
 
+aTest = ->
+  a.genOp() # a
+  console.log 'a contains a', (o.id for o in a.history)
+  b.genOp() # x
+  console.log 'b contains x', (o.id for o in b.history)
+  b.sync a # ax
+  console.log 'b contains ax', (o.id for o in b.history)
+  b.genOp() # axy
+  console.log 'b contains axy', (o.id for o in b.history)
+  a.genOp() # ab
+  console.log 'a contains ab', (o.id for o in a.history)
 
-###
-a.genOp() # a
-console.log 'a contains a', (o.id for o in a.history)
-b.genOp() # x
-console.log 'b contains x', (o.id for o in b.history)
-b.sync a # ax
-console.log 'b contains ax', (o.id for o in b.history)
-b.genOp() # axy
-console.log 'b contains axy', (o.id for o in b.history)
-a.genOp() # ab
-console.log 'a contains ab', (o.id for o in a.history)
-
-b.sync a # abxy
-console.log 'b contains abxy', (o.id for o in b.history)
-a.genOp()
-
-
-# This group generates a swap.
-a.genOp()
-c.genOp()
-b.sync a
-b.sync c
-a.genOp()
-
-console.log 'a contains bc', (o.id for o in a.history)
-console.log 'b contains xb', (o.id for o in b.history)
-b.sync a
-###
+  b.sync a # abxy
+  console.log 'b contains abxy', (o.id for o in b.history)
+  a.genOp()
 
 
-start = process.hrtime()
+bTest = ->
+  # This group generates a swap.
+  a.genOp()
+  c.genOp()
+  b.sync a
+  b.sync c
+  a.genOp()
 
-for i in [1..500]
-  #console.log i
-  for [1..2]
-    n1 = nodes[randomInt nodes.length]
-    n2 = nodes[randomInt nodes.length]
-    n1.sync n2
-  #sync (randomInt 3), (randomInt 3)
-  nodes[randomInt nodes.length].genOp() for [1..10]
-  #makeNode() for [1..3]
+  console.log 'a contains bc', (o.id for o in a.history)
+  console.log 'b contains xb', (o.id for o in b.history)
+  b.sync a
 
-  if i % 100 is 0
-    now = process.hrtime()
-    diff = (now[0] - start[0]) + (now[1] - start[1]) / 1e9
-    console.log diff
-    start = now
 
-b.sync a
-c.sync b
-a.sync c
-b.sync a
+randTest = do ->
+  start = process.hrtime()
 
-assert.deepEqual a.doc.data, b.doc.data
-assert.deepEqual b.doc.data, c.doc.data
-console.log a.doc.data
+  for i in [1..500]
+    #console.log i
+    for [1..2]
+      n1 = nodes[randomInt nodes.length]
+      n2 = nodes[randomInt nodes.length]
+      n1.sync n2
+    #sync (randomInt 3), (randomInt 3)
+    nodes[randomInt nodes.length].genOp() for [1..10]
+    #makeNode() for [1..3]
+
+    if i % 100 is 0
+      now = process.hrtime()
+      diff = (now[0] - start[0]) + (now[1] - start[1]) / 1e9
+      console.log diff
+      start = now
+
+  b.sync a
+  c.sync b
+  a.sync c
+  b.sync a
+
+  assert.deepEqual a.doc.data, b.doc.data
+  assert.deepEqual b.doc.data, c.doc.data
+  console.log a.doc.data
 
 console.log stats
 
