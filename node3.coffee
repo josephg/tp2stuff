@@ -1,10 +1,10 @@
 # This implementation attempts to impose a global ordering on operations to
 # improve performance.
 
-type = ottypes['text-tp2']
-#type = require('ottypes')['text-tp2']
-#{randomInt} = require 'ottypes/randomizer'
-#bSearch = require 'binary-search'
+#type = ottypes['text-tp2']
+type = require('ottypes')['text-tp2']
+{randomInt} = require 'ottypes/randomizer'
+bSearch = require 'binary-search'
 
 #hat = require 'hat'
 
@@ -495,7 +495,7 @@ b.sync a
 ###
 
 
-window.randTest = ->
+do randTest = ->
   stats[k] = 0 for k of stats
   start = Date.now()#process.hrtime()
 
